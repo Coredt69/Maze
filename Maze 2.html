@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Maze Game with Coins & Timer</title>
+  <title>Maze Game with Coins, Timer & Traps</title>
   <style>
     body {
       margin: 0;
@@ -95,6 +95,19 @@
       pointer-events: none;
     }
 
+    .trap {
+      background: darkred;
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 18px;
+      height: 18px;
+      border-radius: 4px;
+      transform: translate(-50%, -50%);
+      z-index: 2;
+      pointer-events: none;
+    }
+
     .buttons {
       position: absolute;
       top: 10px;
@@ -159,6 +172,7 @@
         this.visited = false;
         this.walls = { left: true, right: true, top: true, bottom: true };
         this.hasCoin = false;
+        this.hasTrap = false;
       }
 
       draw() {
@@ -222,17 +236,31 @@
     };
 
     function placeCoins(grid, n, maxCoins) {
-      // Randomly place coins but not at start (0,0) or goal (n-1,n-1)
       let coinsPlaced = 0;
       while (coinsPlaced < maxCoins) {
         const x = Math.floor(Math.random() * n);
         const y = Math.floor(Math.random() * n);
 
         if ((x === 0 && y === 0) || (x === n - 1 && y === n - 1)) continue;
-        if (grid[y][x].hasCoin) continue;
+        if (grid[y][x].hasCoin || grid[y][x].hasTrap) continue;
 
         grid[y][x].hasCoin = true;
         coinsPlaced++;
+      }
+    }
+
+    function placeTraps(grid, n, maxTraps) {
+      let trapsPlaced = 0;
+      while (trapsPlaced < maxTraps) {
+        const x = Math.floor(Math.random() * n);
+        const y = Math.floor(Math.random() * n);
+
+        // Avoid start, goal, coins
+        if ((x === 0 && y === 0) || (x === n - 1 && y === n - 1)) continue;
+        if (grid[y][x].hasCoin || grid[y][x].hasTrap) continue;
+
+        grid[y][x].hasTrap = true;
+        trapsPlaced++;
       }
     }
 
@@ -241,6 +269,7 @@
       const inGrid = (x, y) => x >= 0 && x < n && y >= 0 && y < n;
       const pointHTML = '<div class="wrapper"><div class="point"></div></div>';
       const coinHTML = '<div class="coin"></div>';
+      const trapHTML = '<div class="trap"></div>';
 
       let x = 0, y = 0;
       const cells = document.querySelectorAll(".cell");
@@ -248,13 +277,17 @@
       current.innerHTML = pointHTML;
       current.classList.add("passed");
 
-      // Render coins in cells
+      // Render coins and traps in cells
       for (let row of grid) {
         for (let cell of row) {
+          const cellIndex = index(cell.x, cell.y);
           if (cell.hasCoin) {
-            const cellIndex = index(cell.x, cell.y);
             if (!cells[cellIndex].querySelector('.coin'))
               cells[cellIndex].insertAdjacentHTML('beforeend', coinHTML);
+          }
+          if (cell.hasTrap) {
+            if (!cells[cellIndex].querySelector('.trap'))
+              cells[cellIndex].insertAdjacentHTML('beforeend', trapHTML);
           }
         }
       }
@@ -322,6 +355,14 @@
         x = newX;
         y = newY;
 
+        // Check trap
+        if (grid[y][x].hasTrap) {
+          clearInterval(intervalId);
+          alert("💀 You stepped on a trap! Game over.");
+          generateMaze(n);
+          return;
+        }
+
         // Collect coin if present
         const coinElem = newCell.querySelector(".coin");
         if (coinElem) {
@@ -364,6 +405,8 @@
 
       // Place coins: about 10% of cells
       placeCoins(grid, n, Math.floor(n * n * 0.1));
+      // Place traps: about 5% of cells
+      placeTraps(grid, n, Math.floor(n * n * 0.05));
 
       const container = document.querySelector(".container");
       draw(container, grid);
