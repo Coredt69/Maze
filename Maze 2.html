@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Maze Game with Coins & Timer</title>
+  <style>
+    body {
+      margin: 0;
+      background: white;
+      font-family: sans-serif;
+      user-select: none;
+    }
+
+    .center {
+      transform: translate(-50%, -50%);
+      position: absolute;
+      top: 50%;
+      left: 50%;
+    }
+
+    .container {
+      display: inline-block;
+      border: 2px solid black;
+    }
+
+    .row {
+      display: flex;
+    }
+
+    .cell {
+      background: white;
+      width: 25px;
+      height: 25px;
+      box-sizing: border-box;
+      position: relative;
+    }
+
+    .left-wall {
+      border-left: 2px solid black;
+    }
+
+    .right-wall {
+      border-right: 2px solid black;
+    }
+
+    .top-wall {
+      border-top: 2px solid black;
+    }
+
+    .bottom-wall {
+      border-bottom: 2px solid black;
+    }
+
+    .wrapper {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      position: relative;
+      z-index: 2;
+    }
+
+    .point {
+      background: red;
+      border-radius: 50%;
+      width: 60%;
+      height: 60%;
+      position: relative;
+      z-index: 3;
+    }
+
+    .blue {
+      background: blue;
+    }
+
+    .passed {
+      background: #eee;
+    }
+
+    .coin {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: 12px;
+      height: 12px;
+      background: gold;
+      border-radius: 50%;
+      box-shadow:
+        0 0 5px 2px rgba(255, 215, 0, 0.8),
+        inset 0 0 5px 2px #ffea00;
+      transform: translate(-50%, -50%);
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    .buttons {
+      position: absolute;
+      top: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 100;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 5px;
+    }
+
+    button {
+      padding: 10px 12px;
+      border: none;
+      border-radius: 5px;
+      background: #222;
+      color: white;
+      cursor: pointer;
+    }
+
+    #timer, #score {
+      position: absolute;
+      top: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      font-size: 24px;
+      font-weight: bold;
+      z-index: 100;
+      margin: 0 10px;
+      user-select: none;
+    }
+
+    #score {
+      top: 90px;
+    }
+  </style>
+</head>
+<body>
+  <div class="buttons">
+    <button onclick="generateMaze(20)">Easy (3 min)</button>
+    <button onclick="generateMaze(30)">Medium (2 min)</button>
+    <button onclick="generateMaze(40)">Hard (1 min)</button>
+    <button onclick="generateMaze(50)">Hell (30 sec)</button>
+  </div>
+  <div id="timer">Time Left: 0s</div>
+  <div id="score">Coins: 0</div>
+  <div class="container center"></div>
+
+  <script>
+    const levelSettings = {
+      20: 180, // Easy (3 min)
+      30: 120, // Medium (2 min)
+      40: 60,  // Hard (1 min)
+      50: 30   // Hell (30 sec)
+    };
+
+    class Cell {
+      constructor(x, y, size) {
+        this.x = x;
+        this.y = y;
+        this.size = size;
+        this.visited = false;
+        this.walls = { left: true, right: true, top: true, bottom: true };
+        this.hasCoin = false;
+      }
+
+      draw() {
+        const classes = Object.entries(this.walls)
+          .filter(([_, exists]) => exists)
+          .map(([side]) => `${side}-wall`)
+          .join(" ");
+
+        const sizeStyle = `width: ${this.size}px; height: ${this.size}px;`;
+
+        return `<div style="${sizeStyle}" class="cell ${classes}"></div>`;
+      }
+
+      visit() {
+        this.visited = true;
+      }
+
+      randomNeighbor(grid) {
+        const { x, y } = this;
+        return [
+          [x - 1, y],
+          [x + 1, y],
+          [x, y - 1],
+          [x, y + 1],
+        ]
+          .filter(([x, y]) => grid[y] && grid[y][x] && !grid[y][x].visited)
+          .map(([x, y]) => grid[y][x])
+          .sort(() => Math.random() - 0.5)[0];
+      }
+    }
+
+    function removeWall(c1, c2) {
+      const dx = c1.x - c2.x;
+      const dy = c1.y - c2.y;
+
+      if (dx === 1) {
+        c1.walls.left = false;
+        c2.walls.right = false;
+      } else if (dx === -1) {
+        c1.walls.right = false;
+        c2.walls.left = false;
+      } else if (dy === 1) {
+        c1.walls.top = false;
+        c2.walls.bottom = false;
+      } else if (dy === -1) {
+        c1.walls.bottom = false;
+        c2.walls.top = false;
+      }
+    }
+
+    const createGrid = (n) =>
+      Array.from({ length: n }).map(() =>
+        Array.from({ length: n }).map(() => 0)
+      );
+
+    const draw = (container, grid) => {
+      const html = grid.map(row =>
+        `<div class="row">${row.map(cell => cell.draw()).join("")}</div>`
+      ).join("");
+      container.innerHTML = html;
+    };
+
+    function placeCoins(grid, n, maxCoins) {
+      // Randomly place coins but not at start (0,0) or goal (n-1,n-1)
+      let coinsPlaced = 0;
+      while (coinsPlaced < maxCoins) {
+        const x = Math.floor(Math.random() * n);
+        const y = Math.floor(Math.random() * n);
+
+        if ((x === 0 && y === 0) || (x === n - 1 && y === n - 1)) continue;
+        if (grid[y][x].hasCoin) continue;
+
+        grid[y][x].hasCoin = true;
+        coinsPlaced++;
+      }
+    }
+
+    function createNavigator(n, grid, timeLimit) {
+      const index = (x, y) => y * n + x;
+      const inGrid = (x, y) => x >= 0 && x < n && y >= 0 && y < n;
+      const pointHTML = '<div class="wrapper"><div class="point"></div></div>';
+      const coinHTML = '<div class="coin"></div>';
+
+      let x = 0, y = 0;
+      const cells = document.querySelectorAll(".cell");
+      let current = cells[index(x, y)];
+      current.innerHTML = pointHTML;
+      current.classList.add("passed");
+
+      // Render coins in cells
+      for (let row of grid) {
+        for (let cell of row) {
+          if (cell.hasCoin) {
+            const cellIndex = index(cell.x, cell.y);
+            if (!cells[cellIndex].querySelector('.coin'))
+              cells[cellIndex].insertAdjacentHTML('beforeend', coinHTML);
+          }
+        }
+      }
+
+      // goal
+      cells[cells.length - 1].innerHTML += pointHTML.replace("point", "point blue");
+
+      let timerStarted = false;
+      let intervalId;
+      let timeLeft = timeLimit;
+
+      const timerDiv = document.getElementById("timer");
+      const scoreDiv = document.getElementById("score");
+      timerDiv.textContent = `Time Left: ${timeLeft}s`;
+      let score = 0;
+      scoreDiv.textContent = `Coins: ${score}`;
+
+      function startTimer() {
+        intervalId = setInterval(() => {
+          timeLeft--;
+          timerDiv.textContent = `Time Left: ${timeLeft}s`;
+          if (timeLeft <= 0) {
+            clearInterval(intervalId);
+            alert("⏰ Time's up!");
+            generateMaze(n);
+          }
+        }, 1000);
+      }
+
+      return (e) => {
+        const key = e.key.toLowerCase();
+        let dx = 0, dy = 0;
+
+        if (key === "arrowup" || key === "w") dy = -1;
+        else if (key === "arrowdown" || key === "s") dy = 1;
+        else if (key === "arrowleft" || key === "a") dx = -1;
+        else if (key === "arrowright" || key === "d") dx = 1;
+        else return;
+
+        if (!timerStarted) {
+          startTimer();
+          timerStarted = true;
+        }
+
+        const newX = x + dx;
+        const newY = y + dy;
+
+        if (!inGrid(newX, newY)) return;
+
+        const currentCell = grid[y][x];
+        if (
+          (dx === -1 && currentCell.walls.left) ||
+          (dx === 1 && currentCell.walls.right) ||
+          (dy === -1 && currentCell.walls.top) ||
+          (dy === 1 && currentCell.walls.bottom)
+        ) return;
+
+        const newIndex = index(newX, newY);
+        const newCell = cells[newIndex];
+
+        // Move player point
+        newCell.innerHTML = pointHTML;
+        newCell.classList.add("passed");
+        cells[index(x, y)].innerHTML = "";
+        x = newX;
+        y = newY;
+
+        // Collect coin if present
+        const coinElem = newCell.querySelector(".coin");
+        if (coinElem) {
+          coinElem.remove();
+          score++;
+          scoreDiv.textContent = `Coins: ${score}`;
+          grid[y][x].hasCoin = false;
+        }
+
+        // Check if reached goal (bottom-right corner)
+        if (x === n - 1 && y === n - 1) {
+          clearInterval(intervalId);
+          alert(`🎉 You won! Coins collected: ${score}`);
+          generateMaze(n);
+        }
+      };
+    }
+
+    async function generateMaze(n) {
+      const size = Math.floor(Math.min(window.innerWidth, window.innerHeight) * 0.8 / n);
+      const grid = createGrid(n).map((row, y) =>
+        row.map((_, x) => new Cell(x, y, size))
+      );
+
+      // Maze generation (DFS backtracker)
+      const stack = [grid[0][0]];
+      grid[0][0].visit();
+
+      while (stack.length) {
+        const current = stack.pop();
+        const neighbor = current.randomNeighbor(grid);
+
+        if (neighbor) {
+          stack.push(current);
+          removeWall(current, neighbor);
+          neighbor.visit();
+          stack.push(neighbor);
+        }
+      }
+
+      // Place coins: about 10% of cells
+      placeCoins(grid, n, Math.floor(n * n * 0.1));
+
+      const container = document.querySelector(".container");
+      draw(container, grid);
+
+      document.body.onkeydown = createNavigator(n, grid, levelSettings[n]);
+    }
+
+    // Start with Medium level by default
+    generateMaze(30);
+  </script>
+</body>
+</html>
